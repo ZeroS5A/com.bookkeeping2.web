@@ -1,16 +1,25 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { 
+import {
   // 核心图标
-  Wallet, Plus, PieChart, List, ArrowUpCircle, ArrowDownCircle, 
+  Wallet, Plus, PieChart, List, ArrowUpCircle, ArrowDownCircle,
   // 现有分类图标
-  Utensils, Bus, ShoppingBag, Home, Gamepad2, Coffee, Heart, 
-  GraduationCap, Scissors, Smartphone, Plane, Cat, MoreHorizontal, 
+  Utensils, Bus, ShoppingBag, Home, Gamepad2, Coffee, Heart,
+  GraduationCap, Scissors, Smartphone, Plane, Cat, MoreHorizontal,
   // UI 交互图标
-  ChevronLeft, ChevronRight, X, Trash2, Upload, FileText, 
-  Loader2, CheckCircle2, Clock, Tag, Store, Pencil, Save, 
+  ChevronLeft, ChevronRight, X, Trash2, Upload, FileText,
+  Loader2, CheckCircle2, Clock, Tag, Store, Pencil, Save,
   TrendingUp, Settings, Server, LogOut, User, Lock, Database,
   AlertCircle, PlayCircle, Briefcase, Gift, Gamepad
 } from 'lucide-react';
+
+// 导入工具模块
+import { CATEGORIES } from './tools/constants.js';
+import {
+  parseBillFile,
+  loadXLSXLibrary,
+  parseDateString,
+  guessCategory
+} from './tools/parser.js';
 
 // --- 图标回退映射 (修复图标缺失导致的崩溃) ---
 const Shirt = ShoppingBag;
@@ -22,62 +31,6 @@ const Baby = Heart;
 const FileSpreadsheet = FileText; // 修复: 补充缺失的 FileSpreadsheet 定义
 const Loader = Loader2; // 兼容性映射
 const CheckCircle = CheckCircle2; // 兼容性映射
-
-// --- 配置与常量 ---
-const CATEGORIES = {
-  expense: [
-    { id: 'food', name: '餐饮', icon: Utensils, color: 'bg-orange-100 text-orange-600', keywords: ['餐饮', '美食', '饭', '饿了么', '美团', '麦当劳', '肯德基', '星巴克', '瑞幸'] },
-    { id: 'snacks', name: '零食', icon: Coffee, color: 'bg-yellow-100 text-yellow-600', keywords: ['零食', '奶茶', '饮料', '水果', '下午茶'] },
-    { id: 'shopping', name: '购物', icon: ShoppingBag, color: 'bg-pink-100 text-pink-600', keywords: ['超市', '便利店', '京东', '淘宝', '拼多多', '唯品会', '百货', '优衣库', '各种百货'] },
-    { id: 'clothing', name: '服饰', icon: Shirt, color: 'bg-indigo-100 text-indigo-600', keywords: ['衣服', '裤子', '鞋', '帽', '包', '服装', '优衣库', 'Zara', 'H&M'] },
-    { id: 'transport', name: '交通', icon: Bus, color: 'bg-blue-100 text-blue-600', keywords: ['交通', '地铁', '滴滴', '打车', '铁路', '车费', '机票', '火车', '公交'] },
-    { id: 'car', name: '汽车', icon: Car, color: 'bg-slate-100 text-slate-600', keywords: ['加油', '停车', '保养', '车险', '洗车', '过路费', '中石化', '中石油'] },
-    { id: 'housing', name: '居住', icon: Home, color: 'bg-emerald-100 text-emerald-600', keywords: ['电费', '水费', '物业', '房租', '宽带', '燃气', '暖气'] },
-    { id: 'social', name: '社交', icon: Wine, color: 'bg-purple-100 text-purple-600', keywords: ['请客', '红包', '礼物', '聚餐', '人情'] },
-    { id: 'entertainment', name: '娱乐', icon: Gamepad2, color: 'bg-violet-100 text-violet-600', keywords: ['电影', '游戏', '会员', 'KTV', '网吧', '充值', '演出', '门票'] },
-    { id: 'fitness', name: '运动', icon: Dumbbell, color: 'bg-lime-100 text-lime-600', keywords: ['健身', '运动', '体育', '球', '瑜伽', '游泳'] },
-    { id: 'medical', name: '医疗', icon: Heart, color: 'bg-red-100 text-red-600', keywords: ['医院', '药', '体检', '挂号', '门诊', '看病'] },
-    { id: 'education', name: '教育', icon: GraduationCap, color: 'bg-sky-100 text-sky-600', keywords: ['学费', '培训', '考试', '报名'] },
-    { id: 'book', name: '阅读', icon: BookOpen, color: 'bg-amber-100 text-amber-600', keywords: ['书', '当当', '知识付费', '课程'] },
-    { id: 'baby', name: '亲子', icon: Baby, color: 'bg-rose-100 text-rose-600', keywords: ['尿布', '奶粉', '玩具', '童装', '幼儿园'] },
-    { id: 'beauty', name: '美容', icon: Scissors, color: 'bg-fuchsia-100 text-fuchsia-600', keywords: ['理发', '美容', '化妆品', '护肤', '美甲', '洗剪吹'] },
-    { id: 'digital', name: '数码', icon: Smartphone, color: 'bg-zinc-100 text-zinc-600', keywords: ['手机', '电脑', '数码', '电子', '配件', '苹果', '华为', '小米'] },
-    { id: 'travel', name: '旅行', icon: Plane, color: 'bg-teal-100 text-teal-600', keywords: ['酒店', '民宿', '旅游', '度假', '携程', '飞猪'] },
-    { id: 'pet', name: '宠物', icon: Cat, color: 'bg-orange-50 text-orange-500', keywords: ['猫', '狗', '宠', '粮', '宠物医院'] },
-    { id: 'other', name: '其他', icon: MoreHorizontal, color: 'bg-gray-100 text-gray-600', keywords: [] },
-  ],
-  income: [
-    { id: 'salary', name: '工资', icon: Briefcase, color: 'bg-green-100 text-green-600', keywords: ['工资', '薪资', '薪金'] },
-    { id: 'bonus', name: '奖金', icon: Gift, color: 'bg-red-100 text-red-600', keywords: ['奖金', '红包'] },
-    { id: 'investment', name: '理财', icon: ArrowUpCircle, color: 'bg-blue-100 text-blue-600', keywords: ['理财', '基金', '股票', '利息'] },
-    { id: 'other_income', name: '其他', icon: MoreHorizontal, color: 'bg-gray-100 text-gray-600', keywords: [] },
-  ]
-};
-
-// --- 工具函数：Excel/CSV 解析相关 ---
-
-const guessCategory = (type, productName, counterparty) => {
-  const text = (productName + counterparty).toLowerCase();
-  const catList = type === 'expense' ? CATEGORIES.expense : CATEGORIES.income;
-  
-  for (const cat of catList) {
-    if (cat.keywords && cat.keywords.some(k => text.includes(k.toLowerCase()))) {
-      return cat.id;
-    }
-  }
-  return type === 'expense' ? 'other' : 'other_income';
-};
-
-const loadXLSXLibrary = () => {
-  return new Promise((resolve, reject) => {
-    if (window.XLSX) return resolve(window.XLSX);
-    const script = document.createElement('script');
-    script.src = 'https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js';
-    script.onload = () => resolve(window.XLSX);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-};
 
 const formatDateHeader = (dateStr) => {
   const date = new Date(dateStr);
@@ -424,11 +377,28 @@ export default function App() {
     setIsImportModalOpen(false);
     if (newTxs.length === 0) return;
 
-    const tempTxs = newTxs.map((t, i) => ({ ...t, id: Date.now() + i, userId: user.id }));
+    // 去重检查：根据 date + amount + counterparty 判断是否已存在
+    const existingKeys = new Set(transactions.map(t =>
+      `${new Date(t.date).toISOString().slice(0,10)}|${t.amount}|${t.counterparty || ''}`
+    ));
+
+    const uniqueTxs = newTxs.filter(tx => {
+      const key = `${new Date(tx.date).toISOString().slice(0,10)}|${tx.amount}|${tx.counterparty || ''}`;
+      return !existingKeys.has(key);
+    });
+
+    const duplicateCount = newTxs.length - uniqueTxs.length;
+
+    if (uniqueTxs.length === 0) {
+      alert('所有记录均已存在，无需重复导入');
+      return;
+    }
+
+    const tempTxs = uniqueTxs.map((t, i) => ({ ...t, id: Date.now() + i, userId: user.id }));
     setTransactions(prev => [...tempTxs, ...prev]);
 
     let successCount = 0;
-    for (const tx of newTxs) {
+    for (const tx of uniqueTxs) {
         try {
             await request('/transactions', {
                 method: 'POST',
@@ -440,7 +410,12 @@ export default function App() {
             console.error('Import failed item', e);
         }
     }
-    alert(`导入完成：成功 ${successCount} / ${newTxs.length} 条`);
+
+    const msg = duplicateCount > 0
+      ? `导入完成：成功 ${successCount} 条，跳过重复 ${duplicateCount} 条`
+      : `导入完成：成功 ${successCount} / ${uniqueTxs.length} 条`;
+    alert(msg);
+
     fetchTransactions(user.id);
   };
 
@@ -1322,33 +1297,20 @@ function ImportModal({ onClose, onImport }) {
     const [error, setError] = useState(null);
     const [previewData, setPreviewData] = useState([]);
     const fileInputRef = useRef(null);
-  
+
     const processFile = async (file) => {
       setLoading(true);
       setError(null);
       setPreviewData([]);
-  
+
       try {
-        let data = [];
-        const isCSV = file.name.toLowerCase().endsWith('.csv');
-        
-        if (isCSV) {
-          const text = await file.text();
-          data = parseWeChatCSV(text);
-        } else {
-          // Assume Excel/XLSX
-          const XLSX = await loadXLSXLibrary();
-          const arrayBuffer = await file.arrayBuffer();
-          const workbook = XLSX.read(arrayBuffer);
-          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Array of arrays
-          data = parseWeChatArrayData(jsonData);
-        }
-  
+        // 使用独立工具模块解析文件
+        const data = await parseBillFile(file);
+
         if (data.length === 0) {
           throw new Error('未找到有效账单数据，请检查文件格式');
         }
-  
+
         setPreviewData(data);
       } catch (err) {
         console.error(err);
@@ -1357,108 +1319,7 @@ function ImportModal({ onClose, onImport }) {
         setLoading(false);
       }
     };
-  
-    // 解析 CSV 文本
-    const parseWeChatCSV = (text) => {
-      const lines = text.split(/\r\n|\n/);
-      // 微信账单前面通常有几行头部信息，找到包含 "交易时间" 的那一行作为表头
-      const headerIndex = lines.findIndex(line => line.includes('交易时间') && line.includes('金额'));
-      
-      if (headerIndex === -1) return [];
-  
-      const headers = lines[headerIndex].split(',').map(h => h.trim());
-      const result = [];
-  
-      // 辅助：获取CSV单元格，处理引号
-      const getCells = (line) => {
-         return line.split(',').map(cell => cell.replace(/^"|"$/g, '')); 
-      };
-  
-      const idxTime = headers.findIndex(h => h.includes('交易时间'));
-      const idxType = headers.findIndex(h => h.includes('收/支'));
-      const idxAmount = headers.findIndex(h => h.includes('金额'));
-      const idxProduct = headers.findIndex(h => h.includes('商品'));
-      const idxCounterparty = headers.findIndex(h => h.includes('交易对方'));
-      const idxNote = headers.findIndex(h => h.includes('备注')); 
-  
-      for (let i = headerIndex + 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          
-          const cells = getCells(line);
-          if (cells.length < headers.length) continue;
-  
-          const typeStr = cells[idxType]?.trim(); 
-          if (typeStr !== '收入' && typeStr !== '支出') continue;
-  
-          const amountStr = cells[idxAmount]?.replace('¥', '').trim();
-          const amount = parseFloat(amountStr);
-          if (isNaN(amount)) continue;
-  
-          const type = typeStr === '收入' ? 'income' : 'expense';
-          const product = cells[idxProduct]?.trim() || '';
-          const counterparty = cells[idxCounterparty]?.trim() || '';
-          const note = cells[idxNote]?.trim() || '';
-          const dateRaw = cells[idxTime]?.trim();
-          
-          const categoryId = guessCategory(type, product, counterparty);
-  
-          result.push({
-              type,
-              amount,
-              categoryId,
-              date: new Date(dateRaw).toISOString() || new Date().toISOString(),
-              note: product || note || '导入记录', 
-              counterparty: counterparty 
-          });
-      }
-      return result;
-    };
-  
-    // 解析 Array 数据 (来自 XLSX)
-    const parseWeChatArrayData = (rows) => {
-        const headerRowIndex = rows.findIndex(row => row.some(cell => typeof cell === 'string' && cell.includes('交易时间')));
-        if (headerRowIndex === -1) return [];
-  
-        const headers = rows[headerRowIndex];
-        const idxTime = headers.findIndex(h => h.includes('交易时间'));
-        const idxType = headers.findIndex(h => h.includes('收/支'));
-        const idxAmount = headers.findIndex(h => h.includes('金额'));
-        const idxProduct = headers.findIndex(h => h.includes('商品'));
-        const idxCounterparty = headers.findIndex(h => h.includes('交易对方'));
-  
-        const result = [];
-        for (let i = headerRowIndex + 1; i < rows.length; i++) {
-            const row = rows[i];
-            if (!row || row.length === 0) continue;
-  
-            const typeStr = row[idxType];
-            if (typeStr !== '收入' && typeStr !== '支出') continue;
-  
-            let amount = row[idxAmount];
-            if (typeof amount === 'string') amount = parseFloat(amount.replace('¥', ''));
-            
-            const type = typeStr === '收入' ? 'income' : 'expense';
-            const product = row[idxProduct] || '';
-            const counterparty = row[idxCounterparty] || '';
-            
-            let dateStr = row[idxTime];
-            if (typeof dateStr !== 'string') dateStr = new Date().toISOString();
-  
-            const categoryId = guessCategory(type, product, counterparty);
-  
-            result.push({
-              type,
-              amount,
-              categoryId,
-              date: new Date(dateStr).toISOString(), 
-              note: product || '', 
-              counterparty: counterparty 
-            });
-        }
-        return result;
-    };
-  
+
     return (
       <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in p-4">
         <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
