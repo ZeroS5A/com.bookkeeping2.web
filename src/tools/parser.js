@@ -224,6 +224,7 @@ export const parseWeChatCSV = (text) => {
     const counterparty = cells[idxCounterparty]?.trim() || '';
     const note = cells[idxNote]?.trim() || '';
     const dateRaw = cells[idxTime]?.trim();
+    const transactionNo = cells[cells.length - 1]?.trim(); // 假设最后一列是交易单号，根据实际情况调整
 
     // 使用专门的日期解析函数
     const date = parseDateString(dateRaw);
@@ -235,7 +236,8 @@ export const parseWeChatCSV = (text) => {
       categoryId,
       date: date.toISOString(),
       note: product || note || '导入记录',
-      counterparty
+      counterparty,
+      transactionNo
     });
   }
 

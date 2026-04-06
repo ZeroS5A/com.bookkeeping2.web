@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   // 核心图标
   Wallet, Plus, PieChart, List, ArrowUpCircle, ArrowDownCircle,
@@ -108,16 +108,16 @@ const SimplePieChart = ({ data }) => {
   const paths = data.map((item, index) => {
     const percentage = item.amount / total;
     const angle = percentage * 360;
-    
+
     if (percentage >= 0.999) {
        return (
-         <circle key={item.id} cx="50" cy="50" r="40" fill="currentColor" className={item.color.split(' ')[1]} />
+         <circle key={item.id} cx="50" cy="50" r="40" fill="currentColor" className={`${item.color.split(' ')[1]} pie-slice`} style={{ animationDelay: `${index * 80}ms` }} />
        );
     }
 
     const x1 = 50 + 40 * Math.cos((Math.PI / 180) * (accumulatedAngle - 90));
     const y1 = 50 + 40 * Math.sin((Math.PI / 180) * (accumulatedAngle - 90));
-    
+
     const x2 = 50 + 40 * Math.cos((Math.PI / 180) * (accumulatedAngle + angle - 90));
     const y2 = 50 + 40 * Math.sin((Math.PI / 180) * (accumulatedAngle + angle - 90));
 
@@ -133,12 +133,13 @@ const SimplePieChart = ({ data }) => {
     accumulatedAngle += angle;
 
     return (
-      <path 
-        key={item.id} 
-        d={pathData} 
-        className={`${item.color.split(' ')[1]} hover:opacity-80 transition-opacity cursor-pointer`}
+      <path
+        key={item.id}
+        d={pathData}
+        className={`${item.color.split(' ')[1]} pie-slice hover:opacity-80 transition-opacity cursor-pointer`}
+        style={{ animationDelay: `${index * 80}ms`, transformOrigin: '50px 50px' }}
         fill="currentColor"
-        stroke="white" 
+        stroke="white"
         strokeWidth="1"
       />
     );
@@ -146,11 +147,11 @@ const SimplePieChart = ({ data }) => {
 
   return (
     <div className="relative w-48 h-48 mx-auto">
-       <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-0">
+       <svg viewBox="0 0 100 100" className="w-full h-full">
          {paths}
          <circle cx="50" cy="50" r="25" fill="white" />
        </svg>
-       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pie-center-text">
           <span className="text-[10px] text-gray-400">总支出</span>
           <span className="text-sm font-bold text-gray-800">¥{total.toFixed(0)}</span>
        </div>
@@ -175,11 +176,9 @@ const MonthlyTrendChart = ({ transactions }) => {
             };
         }
         transactions.forEach(t => {
-            if (t.type === 'expense') {
-                const date = new Date(t.date);
-                const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                if (data[key]) data[key].amount += Number(t.amount);
-            }
+            const date = new Date(t.date);
+            const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            if (data[key]) data[key].amount += Number(t.amount);
         });
         return Object.values(data);
     }, [transactions]);
@@ -243,12 +242,60 @@ const MonthlyTrendChart = ({ transactions }) => {
     );
 };
 
+// --- 导入状态弹窗 (处理中 / 成功 / 失败) ---
+function ImportStatusModal({ status, result, error, onClose }) {
+  if (!status) return null;
+
+  if (status === 'loading') {
+    return (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-6">
+        <div className="bg-white rounded-2xl w-full max-w-xs shadow-2xl p-8 text-center animate-zoom-in">
+          <div className="w-14 h-14 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Loader2 size={28} className="text-blue-500 animate-spin" />
+          </div>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">处理中</h3>
+          <p className="text-sm text-gray-400">正在导入账单数据，请稍后...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isSuccess = status === 'success';
+  const iconBg = isSuccess ? 'bg-green-50' : 'bg-red-50';
+  const iconColor = isSuccess ? 'text-green-500' : 'text-red-500';
+  const Icon = isSuccess ? CheckCircle2 : AlertCircle;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-6">
+      <div className="bg-white rounded-2xl w-full max-w-xs shadow-2xl p-6 text-center animate-zoom-in">
+        <div className={`w-14 h-14 ${iconBg} ${iconColor} rounded-full flex items-center justify-center mx-auto mb-4`}>
+          <Icon size={28} />
+        </div>
+        <h3 className="text-lg font-bold text-gray-900 mb-2">{isSuccess ? '导入完成' : '导入失败'}</h3>
+        <p className="text-sm text-gray-500 mb-6">
+          {isSuccess
+            ? (result.skipped > 0
+                ? <>成功 <span className="font-bold text-green-600">{result.inserted}</span> 条，跳过重复 <span className="font-bold text-orange-500">{result.skipped}</span> 条</>
+                : <>成功导入 <span className="font-bold text-green-600">{result.inserted}</span> / {result.total} 条</>)
+            : error}
+        </p>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-bold text-sm active:scale-95 transition-transform"
+        >
+          确定
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // --- 通用确认弹窗 ---
 function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }) {
   if (!isOpen) return null;
   return (
-    <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in p-6">
-      <div className="bg-white rounded-2xl w-full max-w-xs shadow-2xl p-6 text-center animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-6">
+      <div className="bg-white rounded-2xl w-full max-w-xs shadow-2xl p-6 text-center animate-zoom-in">
         <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertCircle size={24} />
         </div>
@@ -290,6 +337,11 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false); 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // 导入状态弹窗
+  const [importStatus, setImportStatus] = useState(null); // null | 'loading' | 'success' | 'error'
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
   
   const [appMode, setAppMode] = useState('api'); 
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('api_url') || 'http://localhost:3000/api');
@@ -300,7 +352,7 @@ export default function App() {
     localStorage.setItem('api_url', cleanUrl);
   };
 
-  const request = async (endpoint, options = {}) => {
+  const request = useCallback(async (endpoint, options = {}) => {
     if (appMode === 'mock') {
         const method = options.method || 'GET';
         const body = options.body ? JSON.parse(options.body) : null;
@@ -313,25 +365,30 @@ export default function App() {
         }
         return await res.json();
     }
-  };
+  }, [appMode, apiUrl]);
 
-  const fetchTransactions = async (userId) => {
+  // 获取指定月份的用户账单
+  const fetchTransactions = useCallback(async (userId, date = new Date()) => {
     setIsLoading(true);
     try {
-      const data = await request(`/transactions?userId=${userId}`);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const data = await request(`/transactions?userId=${userId}&year=${year}&month=${month}`);
+
+      // 更新账单状态：替换原有账单，而不是追加
       setTransactions(data);
     } catch (err) {
       console.error("Fetch Error:", err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [request]);
 
   useEffect(() => {
     if (user && user.id) {
-        fetchTransactions(user.id);
+        fetchTransactions(user.id, new Date());
     }
-  }, []);
+  }, [user, fetchTransactions]);
 
   const handleAuth = async (type, username, password) => {
     setIsLoading(true);
@@ -377,46 +434,24 @@ export default function App() {
     setIsImportModalOpen(false);
     if (newTxs.length === 0) return;
 
-    // 去重检查：根据 date + amount + counterparty 判断是否已存在
-    const existingKeys = new Set(transactions.map(t =>
-      `${new Date(t.date).toISOString().slice(0,10)}|${t.amount}|${t.counterparty || ''}`
-    ));
+    setImportStatus('loading');
+    setImportResult(null);
+    setImportError('');
 
-    const uniqueTxs = newTxs.filter(tx => {
-      const key = `${new Date(tx.date).toISOString().slice(0,10)}|${tx.amount}|${tx.counterparty || ''}`;
-      return !existingKeys.has(key);
-    });
+    try {
+      const result = await request('/transactions/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, transactions: newTxs })
+      });
 
-    const duplicateCount = newTxs.length - uniqueTxs.length;
-
-    if (uniqueTxs.length === 0) {
-      alert('所有记录均已存在，无需重复导入');
-      return;
+      setImportResult(result);
+      setImportStatus('success');
+      fetchTransactions(user.id);
+    } catch (err) {
+      setImportError(err.message);
+      setImportStatus('error');
     }
-
-    const tempTxs = uniqueTxs.map((t, i) => ({ ...t, id: Date.now() + i, userId: user.id }));
-    setTransactions(prev => [...tempTxs, ...prev]);
-
-    let successCount = 0;
-    for (const tx of uniqueTxs) {
-        try {
-            await request('/transactions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...tx, userId: user.id })
-            });
-            successCount++;
-        } catch (e) {
-            console.error('Import failed item', e);
-        }
-    }
-
-    const msg = duplicateCount > 0
-      ? `导入完成：成功 ${successCount} 条，跳过重复 ${duplicateCount} 条`
-      : `导入完成：成功 ${successCount} / ${uniqueTxs.length} 条`;
-    alert(msg);
-
-    fetchTransactions(user.id);
   };
 
   const handleDelete = async (id) => {
@@ -483,16 +518,14 @@ export default function App() {
             </div>
         </header>
 
-        {/* 使用 overflow-hidden + 内部 flex-col 结构来实现“部分固定、部分滚动” */}
+        {/* 两个页面始终挂载，通过 CSS 切换显示，保留各自的内部状态 */}
         <main className="flex-1 overflow-hidden relative">
-          {activeTab === 'home' ? (
-            <HomeView transactions={transactions} onDelete={handleDelete} onUpdate={handleUpdate} />
-          ) : (
-            // 统计页面也可以用类似的滚动策略，目前保持整体滚动
-            <div className="h-full overflow-y-auto hide-scrollbar pb-24">
-               <StatsView transactions={transactions} onDelete={handleDelete} onUpdate={handleUpdate} />
-            </div>
-          )}
+          <div className={`h-full ${activeTab === 'home' ? '' : 'hidden'}`}>
+            <HomeView transactions={transactions} onDelete={handleDelete} onUpdate={handleUpdate} fetchTransactions={fetchTransactions} user={user} />
+          </div>
+          <div data-stats-scroll className={`h-full overflow-y-auto hide-scrollbar pb-24 transition-opacity duration-200 ${activeTab === 'stats' ? '' : 'hidden'}`}>
+             <StatsView transactions={transactions} onDelete={handleDelete} onUpdate={handleUpdate} fetchTransactions={fetchTransactions} user={user} request={request} />
+          </div>
         </main>
 
         <div className="absolute bottom-0 w-full bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-20 pb-8 sm:pb-4">
@@ -508,16 +541,22 @@ export default function App() {
         {isAddModalOpen && <AddTransactionModal onClose={() => setIsAddModalOpen(false)} onSave={handleAddTransaction} />}
         {isImportModalOpen && <ImportModal onClose={() => setIsImportModalOpen(false)} onImport={handleBatchAddTransactions} />}
         {isSettingsOpen && (
-            <SettingsModal 
-                user={user} 
-                onClose={() => setIsSettingsOpen(false)} 
-                onLogout={() => { 
-                    setUser(null); 
-                    setTransactions([]); 
-                    localStorage.removeItem('user_session'); 
-                }} 
+            <SettingsModal
+                user={user}
+                onClose={() => setIsSettingsOpen(false)}
+                onLogout={() => {
+                    setUser(null);
+                    setTransactions([]);
+                    localStorage.removeItem('user_session');
+                }}
             />
         )}
+        <ImportStatusModal
+            status={importStatus}
+            result={importResult}
+            error={importError}
+            onClose={() => setImportStatus(null)}
+        />
       </div>
     </div>
   );
@@ -543,7 +582,7 @@ function LoginScreen({ onAuth, apiUrl, onSaveApiConfig, isLoading, onSwitchMode,
     if (!result.success) {
         let msg = result.message;
         if (msg === 'Failed to fetch') {
-            msg = '无法连接服务器。如果您的服务器是HTTP而此处是HTTPS，浏览器可能会拦截请求。建议尝试下方的“进入演示模式”。';
+            msg = '无法连接服务器。如果您的服务器是HTTP而此处是HTTPS，浏览器可能会拦截请求。建议尝试下方的"进入演示模式"。';
         }
         setErrorMsg(msg);
     }
@@ -574,7 +613,7 @@ function LoginScreen({ onAuth, apiUrl, onSaveApiConfig, isLoading, onSwitchMode,
         </div>
 
         {errorMsg && (
-            <div className="bg-red-50 text-red-500 text-xs p-3 rounded-xl mb-4 flex items-start gap-2 animate-in fade-in">
+            <div className="bg-red-50 text-red-500 text-xs p-3 rounded-xl mb-4 flex items-start gap-2 animate-fade-in">
                 <AlertCircle size={16} className="shrink-0 mt-0.5"/>
                 <span>{errorMsg}</span>
             </div>
@@ -588,7 +627,7 @@ function LoginScreen({ onAuth, apiUrl, onSaveApiConfig, isLoading, onSwitchMode,
         )}
 
         {showConfig ? (
-           <div className="bg-gray-50 p-6 rounded-2xl animate-in fade-in">
+           <div className="bg-gray-50 p-6 rounded-2xl animate-fade-in">
               <h3 className="font-bold mb-4 flex items-center gap-2"><Server size={18}/> 服务器配置</h3>
               <input 
                 className="w-full p-3 rounded-xl border border-gray-200 mb-4 text-sm"
@@ -613,7 +652,7 @@ function LoginScreen({ onAuth, apiUrl, onSaveApiConfig, isLoading, onSwitchMode,
               </div>
            </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 animate-in fade-in">
+          <form onSubmit={handleSubmit} className="space-y-4 animate-fade-in">
             <div className="bg-gray-50 p-2 rounded-xl border border-gray-100 flex items-center px-4">
               <User size={18} className="text-gray-400 mr-3" />
               <input 
@@ -674,20 +713,49 @@ function LoginScreen({ onAuth, apiUrl, onSaveApiConfig, isLoading, onSwitchMode,
   );
 }
 
+// --- 数字滚动动画组件 ---
+function AnimatedNumber({ value, prefix = '', suffix = '', decimals = 2 }) {
+  const [display, setDisplay] = useState('0');
+  const prevValue = useRef(value);
+
+  useEffect(() => {
+    const start = prevValue.current;
+    const end = value;
+    prevValue.current = end;
+    const duration = 400;
+    const startTime = performance.now();
+
+    const animate = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // easeOutCubic
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const current = start + (end - start) * ease;
+      setDisplay(current.toFixed(decimals));
+      if (progress < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }, [value, decimals]);
+
+  return <>{prefix}{display}{suffix}</>;
+}
+
 // --- Enhanced HomeView with Month Filter and Fixed Header ---
-function HomeView({ transactions, onDelete, onUpdate }) {
+function HomeView({ transactions, onDelete, onUpdate, fetchTransactions, user }) {
   const [selectedTx, setSelectedTx] = useState(null);
-  const [currentDate, setCurrentDate] = useState(new Date()); 
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
 
-  const monthlyTransactions = useMemo(() => {
-    return transactions.filter(t => {
-      const d = new Date(t.date);
-      return d.getFullYear() === currentDate.getFullYear() && 
-             d.getMonth() === currentDate.getMonth();
-    });
-  }, [transactions, currentDate]);
+  const [listAnimKey, setListAnimKey] = useState(0);
+
+  // 依赖 currentDate，当月份变化时自动请求数据
+  useEffect(() => {
+    fetchTransactions(user.id, currentDate);
+    setListAnimKey(k => k + 1); // 触发列表动画
+  }, [currentDate, user.id, fetchTransactions]);
+
+  const monthlyTransactions = transactions; // 已经是过滤好的
 
   const summary = useMemo(() => {
     return monthlyTransactions.reduce((acc, curr) => {
@@ -742,10 +810,10 @@ function HomeView({ transactions, onDelete, onUpdate }) {
             </div>
 
             <div className="text-gray-400 text-sm mb-1">本月结余</div>
-            <div className="text-3xl font-bold mb-6">¥ {summary.total.toFixed(2)}</div>
+            <div className="text-3xl font-bold mb-6">¥ <AnimatedNumber value={summary.total}/></div>
             <div className="flex justify-between">
-            <div><div className="text-red-300 text-xs flex items-center gap-1"><ArrowDownCircle size={12}/> 支出</div><div className="font-bold">¥{summary.expense.toFixed(2)}</div></div>
-            <div className="text-right"><div className="text-green-300 text-xs flex items-center justify-end gap-1">收入 <ArrowUpCircle size={12}/></div><div className="font-bold">¥{summary.income.toFixed(2)}</div></div>
+            <div><div className="text-red-300 text-xs flex items-center gap-1"><ArrowDownCircle size={12}/> 支出</div><div className="font-bold">¥<AnimatedNumber value={summary.expense}/></div></div>
+            <div className="text-right"><div className="text-green-300 text-xs flex items-center justify-end gap-1">收入 <ArrowUpCircle size={12}/></div><div className="font-bold">¥<AnimatedNumber value={summary.income}/></div></div>
             </div>
         </div>
       </div>
@@ -753,9 +821,9 @@ function HomeView({ transactions, onDelete, onUpdate }) {
       {/* 2. 可滚动的列表区域 */}
       <div className="flex-1 overflow-y-auto px-5 pb-24 hide-scrollbar">
         {grouped.length === 0 ? <div className="text-center text-gray-400 py-10 text-sm">本月暂无数据</div> : (
-            <div className="space-y-4">
+            <div className="space-y-4" key={listAnimKey}>
             {grouped.map((g, i) => (
-                <div key={i}>
+                <div key={i} className="stagger-item" style={{ animationDelay: `${i * 40}ms` }}>
                 <div className="flex justify-between text-xs text-gray-400 mb-2 px-1">
                     <span>{formatDateHeader(g.date)}</span>
                     <span>支 {g.expense.toFixed(2)} · 收 {g.income.toFixed(2)}</span>
@@ -783,7 +851,7 @@ function TransactionItem({ transaction, onClick, isLast }) {
     <>
       <div onClick={onClick} className="flex items-center justify-between p-4 active:bg-gray-50 transition-colors">
         <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center ${cat.color}`}><Icon size={16}/></div>
+          <div className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center ${cat.color}`}><Icon size={16}/></div>
           <div><div className="text-sm font-bold text-gray-700">{cat.name}</div><div className="text-xs text-gray-400">{transaction.note || transaction.counterparty || '-'}</div></div>
         </div>
         <div className={`font-bold ${transaction.type==='expense'?'text-gray-900':'text-green-600'}`}>{transaction.type==='expense'?'-':'+'}{Number(transaction.amount).toFixed(2)}</div>
@@ -794,50 +862,161 @@ function TransactionItem({ transaction, onClick, isLast }) {
 }
 
 // ... StatsView components (unchanged) ...
-function StatsView({ transactions, onDelete, onUpdate }) {
+function StatsView({ transactions, onDelete, onUpdate, fetchTransactions, user, request }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedCategory, setSelectedCategory] = useState(null); // 'food', 'transport' etc.
   const [selectedTx, setSelectedTx] = useState(null);
+  const [viewType, setViewType] = useState('expense'); // 新增：切换收入/支出
+  const [trendData, setTrendData] = useState([]); // 新增：趋势数据状态
+
+  // 获取趋势数据（根据 viewType 切换支出/收入）
+  const fetchTrendData = useCallback(async () => {
+      try {
+          const data = await request(`/transactions/trend?userId=${user.id}&type=${viewType}`);
+          setTrendData(data);
+      } catch (err) {
+          console.error("Fetch Trend Error:", err);
+      }
+  }, [user.id, request, viewType]);
+
+  useEffect(() => {
+      fetchTrendData();
+  }, [fetchTrendData]);
+
+  // 定义 MonthlyTrendChart 组件 (柱状图，从底部升起)
+  const MonthlyTrendChart = ({ data }) => {
+      const scrollRef = useRef(null);
+      const chartColor = viewType === 'expense' ? '#3b82f6' : '#22c55e';
+      const barColorLight = viewType === 'expense' ? '#93bbfd' : '#86efac';
+
+      useEffect(() => {
+          if (scrollRef.current) {
+              scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+          }
+      }, [data]);
+
+      const chartData = useMemo(() => {
+          const now = new Date();
+          const result = [];
+          for (let i = 5; i >= 0; i--) {
+             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+             const found = data.find(item => item.month === key);
+             result.push({
+                 label: `${d.getMonth() + 1}月`,
+                 amount: found ? Number(found.total_amount) : 0,
+                 key
+             });
+          }
+          return result;
+      }, [data]);
+
+      const itemWidth = 50;
+      const barWidth = 24;
+      const width = Math.max(chartData.length * itemWidth, 300);
+      const height = 160;
+      const padding = 30;
+      const bottomPadding = 24;
+      const chartHeight = height - bottomPadding - padding;
+      const maxVal = Math.max(...chartData.map(d => d.amount), 100);
+      const baseline = height - bottomPadding;
+
+      return (
+          <div ref={scrollRef} className="w-full overflow-x-auto hide-scrollbar scroll-smooth">
+              <svg width={width} height={height} className="overflow-visible">
+                  <line x1="0" y1={baseline} x2={width} y2={baseline} stroke="#f3f4f6" strokeWidth="1" />
+                  {chartData.map((d, i) => {
+                      const x = i * itemWidth + (itemWidth / 2);
+                      const barH = maxVal > 0 ? (d.amount / maxVal) * chartHeight : 0;
+                      return (
+                          <g key={d.key}>
+                              {/* 柱状条，从底部升起 */}
+                              <rect
+                                  x={x - barWidth / 2}
+                                  y={baseline - barH}
+                                  width={barWidth}
+                                  height={barH}
+                                  rx={4}
+                                  fill={chartColor}
+                                  opacity={d.amount > 0 ? 0.85 : 0.1}
+                                  className="chart-bar-grow"
+                                  style={{
+                                      transformOrigin: `${x}px ${baseline}px`,
+                                      animationDelay: `${i * 0.06}s`
+                                  }}
+                              />
+                              {/* 数值标签 */}
+                              {d.amount > 0 && (
+                                  <text x={x} y={baseline - barH - 8} fontSize="10" fill={chartColor} textAnchor="middle" fontWeight="bold" className="chart-dot" style={{ animationDelay: `${0.3 + i * 0.06}s` }}>
+                                      {d.amount >= 1000 ? (d.amount/1000).toFixed(1) + 'k' : Math.round(d.amount)}
+                                  </text>
+                              )}
+                              <text x={x} y={height - 5} fontSize="11" fill="#9ca3af" textAnchor="middle">{d.label}</text>
+                          </g>
+                      )
+                  })}
+              </svg>
+          </div>
+      );
+  };
+
+
 
   // 1. 过滤出当前月份的交易 (用于饼图和列表)
   const monthlyTransactions = useMemo(() => {
-    return transactions.filter(t => {
-      const d = new Date(t.date);
-      return d.getFullYear() === currentMonth.getFullYear() && 
-             d.getMonth() === currentMonth.getMonth() &&
-             t.type === 'expense'; // 只统计支出
-    });
-  }, [transactions, currentMonth]);
+    return transactions.filter(t => t.type === viewType); // 过滤类型
+  }, [transactions, viewType]);
 
-  // 2. 计算分类统计数据
-  const stats = useMemo(() => {
-    const total = monthlyTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-    const byCategory = monthlyTransactions.reduce((acc, t) => {
-      acc[t.categoryId] = (acc[t.categoryId] || 0) + parseFloat(t.amount);
-      return acc;
-    }, {});
+  const [stats, setStats] = useState([]); // 新增：分类统计状态
+  const [statsTransactions, setStatsTransactions] = useState([]);
 
-    return Object.entries(byCategory)
-      .map(([id, amount]) => {
-        const cat = CATEGORIES.expense.find(c => c.id === id);
-        return {
-          id,
-          name: cat ? cat.name : '未知',
-          color: cat ? cat.color : 'bg-gray-100 text-gray-600', // Fallback color
-          amount,
-          percent: total > 0 ? (amount / total) * 100 : 0
-        };
-      })
-      .sort((a, b) => b.amount - a.amount);
-  }, [monthlyTransactions]);
+  // StatsView 切换月份时，独立获取该月交易数据
+  useEffect(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth() + 1;
+    request(`/transactions?userId=${user.id}&year=${year}&month=${month}`)
+      .then(data => setStatsTransactions(data))
+      .catch(() => setStatsTransactions([]));
+  }, [currentMonth, user.id, request]);
 
-  // 3. 过滤出选中分类的交易详情
+  // 获取分类统计数据
+  const fetchCategoryStats = useCallback(async () => {
+      try {
+          const year = currentMonth.getFullYear();
+          const month = currentMonth.getMonth() + 1;
+          const data = await request(`/transactions/stats?userId=${user.id}&year=${year}&month=${month}&type=${viewType}`);
+
+          // 转换数据格式以适配原有组件
+          const total = data.reduce((sum, item) => sum + parseFloat(item.total_amount), 0);
+          const formattedStats = data.map(item => {
+              const cat = CATEGORIES[viewType].find(c => c.id === item.categoryId);
+              return {
+                  id: item.categoryId,
+                  name: cat ? cat.name : '未知',
+                  color: cat ? cat.color : 'bg-gray-100 text-gray-600',
+                  amount: parseFloat(item.total_amount),
+                  percent: total > 0 ? (parseFloat(item.total_amount) / total) * 100 : 0
+              };
+          }).sort((a, b) => b.amount - a.amount);
+
+          setStats(formattedStats);
+      } catch (err) {
+          console.error("Fetch Stats Error:", err);
+          setStats([]);
+      }
+  }, [user.id, currentMonth, viewType, request]);
+
+  useEffect(() => {
+      fetchCategoryStats();
+  }, [fetchCategoryStats]);
+
+  // 3. 过滤出选中分类的交易详情（使用 StatsView 独立获取的数据）
   const categoryDetails = useMemo(() => {
     if (!selectedCategory) return [];
-    return monthlyTransactions
-      .filter(t => t.categoryId === selectedCategory)
+    return statsTransactions
+      .filter(t => t.type === viewType && t.categoryId === selectedCategory)
       .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [monthlyTransactions, selectedCategory]);
+  }, [statsTransactions, viewType, selectedCategory]);
 
   const changeMonth = (delta) => {
     const newDate = new Date(currentMonth);
@@ -847,61 +1026,80 @@ function StatsView({ transactions, onDelete, onUpdate }) {
   };
 
   const hasData = stats.length > 0;
-  
-  // 如果选中了分类，显示二级详情页
+
+  // 类别详情页（全屏替换，从右滑入）
   if (selectedCategory) {
-     const cat = CATEGORIES.expense.find(c => c.id === selectedCategory) || { name: '未知' };
-     // Fix: Convert t.amount to Number
-     const totalAmount = categoryDetails.reduce((sum, t) => sum + Number(t.amount), 0); 
+    return (
+      <>
+        <div className="flex flex-col h-full animate-slide-from-right bg-gray-100">
+          {/* 固定顶部：返回按钮 + 标题 */}
+          <div className="px-5 pt-2 pb-3 shrink-0">
+            <div className="flex items-center gap-2 mb-4">
+              <button
+                onClick={() => setSelectedCategory(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"
+              >
+                <ChevronLeft size={20} className="text-gray-600" />
+              </button>
+              <h2 className="text-lg font-bold text-gray-900">
+                {CATEGORIES[viewType].find(c => c.id === selectedCategory)?.name || '未知'}明细
+              </h2>
+            </div>
+          </div>
 
-     return (
-       <div className="px-5 pt-2 animate-in slide-in-from-right duration-200">
-         <div className="flex items-center gap-2 mb-6">
-           <button 
-             onClick={() => setSelectedCategory(null)}
-             className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200"
-           >
-             <ChevronLeft size={20} className="text-gray-600" />
-           </button>
-           <h2 className="text-lg font-bold text-gray-900">{cat.name}明细</h2>
-         </div>
+          {/* 固定的金额卡片 */}
+          <div className="px-5 pb-4 shrink-0">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+              <div className="text-gray-500 text-xs mb-1">{currentMonth.getMonth()+1}月总{viewType === 'expense' ? '支出' : '收入'}</div>
+              <div className="text-3xl font-bold text-gray-900">¥ {categoryDetails.reduce((s,t)=>s+Number(t.amount),0).toFixed(2)}</div>
+            </div>
+          </div>
 
-         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6 text-center">
-            <div className="text-gray-500 text-xs mb-1">{currentMonth.getMonth()+1}月总支出</div>
-            <div className="text-3xl font-bold text-gray-900">¥ {totalAmount.toFixed(2)}</div>
-         </div>
-
-         <div className="space-y-3 pb-20">
-           {categoryDetails.map(t => (
-             <div key={t.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-50">
-               <TransactionItem 
-                 transaction={t} 
-                 onClick={() => setSelectedTx(t)}
-                 isLast={true}
-               />
-             </div>
-           ))}
-         </div>
-
-         {selectedTx && (
-            <TransactionDetailModal 
-              transaction={selectedTx} 
-              onClose={() => setSelectedTx(null)}
-              onDelete={(id) => { onDelete(id); setSelectedTx(null); }}
-              onUpdate={(tx) => { onUpdate(tx); setSelectedTx(tx); }}
-            />
-          )}
-       </div>
-     );
+          {/* 可滚动的条目列表 */}
+          <div className="flex-1 overflow-y-auto px-5 pb-20 hide-scrollbar">
+            {categoryDetails.length === 0 ? (
+              <div className="text-center text-gray-400 py-10 text-sm">暂无记录</div>
+            ) : (
+              <div className="space-y-3">
+                {categoryDetails.map(t => (
+                    <div key={t.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-50">
+                      <TransactionItem
+                        transaction={t}
+                        onClick={() => setSelectedTx(t)}
+                        isLast={true}
+                      />
+                    </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        {selectedTx && (
+          <TransactionDetailModal
+            transaction={selectedTx}
+            onClose={() => setSelectedTx(null)}
+            onDelete={(id) => { onDelete(id); setSelectedTx(null); }}
+            onUpdate={(tx) => { onUpdate(tx); setSelectedTx(tx); }}
+          />
+        )}
+      </>
+    );
   }
 
+  // 主统计页面
   return (
-    <div className="px-5 pt-4 space-y-6">
-      
+    <div className="px-5 pt-4 space-y-6 h-full overflow-y-auto hide-scrollbar">
+
+      {/* 收入/支出切换 */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+          <button onClick={()=>{setViewType('expense'); setSelectedCategory(null);}} className={`flex-1 py-1.5 rounded-lg text-sm font-bold transition-all ${viewType==='expense'?'bg-white shadow text-gray-900':'text-gray-500'}`}>支出</button>
+          <button onClick={()=>{setViewType('income'); setSelectedCategory(null);}} className={`flex-1 py-1.5 rounded-lg text-sm font-bold transition-all ${viewType==='income'?'bg-white shadow text-gray-900':'text-gray-500'}`}>收入</button>
+      </div>
+
       {/* 月度趋势图 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-         <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-blue-500"/> 近6个月趋势</h3>
-         <MonthlyTrendChart transactions={transactions} />
+         <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-blue-500"/> 近6个月{viewType === 'expense' ? '支出' : '收入'}趋势</h3>
+         <MonthlyTrendChart data={trendData} />
       </div>
 
       {/* 月份筛选器 */}
@@ -920,7 +1118,7 @@ function StatsView({ transactions, onDelete, onUpdate }) {
             <SimplePieChart data={stats} />
           ) : (
             <div className="flex flex-col items-center justify-center h-48 text-gray-400 bg-gray-50 rounded-full w-48 mx-auto">
-              <span className="text-xs">本月暂无支出</span>
+              <span className="text-xs">本月暂无{viewType === 'expense' ? '支出' : '收入'}</span>
             </div>
           )}
       </div>
@@ -930,13 +1128,13 @@ function StatsView({ transactions, onDelete, onUpdate }) {
          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
            <div className="grid grid-cols-2 gap-4">
              {stats.map(stat => (
-               <button 
-                 key={stat.id} 
+               <button
+                 key={stat.id}
                  onClick={() => setSelectedCategory(stat.id)}
                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 transition-colors text-left"
                >
-                 <div 
-                    className={`w-3 h-3 rounded-full ${stat.color.split(' ')[1]}`} 
+                 <div
+                    className={`w-3 h-3 rounded-full ${stat.color.split(' ')[1]}`}
                     style={{ backgroundColor: 'currentColor' }}
                  ></div>
                  <div className="flex-1 flex justify-between items-baseline text-sm w-full">
@@ -958,8 +1156,8 @@ function StatsView({ transactions, onDelete, onUpdate }) {
 // ... SettingsModal, NavButton, TransactionDetailModal, AddTransactionModal, ImportModal (unchanged) ...
 function SettingsModal({ user, onClose, onLogout }) {
   return (
-    <div className="absolute inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm animate-in fade-in">
-        <div className="bg-white w-3/4 h-full shadow-2xl p-6 animate-in slide-in-from-right flex flex-col">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-sm animate-fade-in">
+        <div className="bg-white w-3/4 h-full shadow-2xl p-6 animate-slide-from-right flex flex-col">
             <div className="flex justify-between items-center mb-8">
                 <h2 className="text-xl font-bold">个人中心</h2>
                 <button onClick={onClose}><X size={24} className="text-gray-400"/></button>
@@ -1005,8 +1203,8 @@ function TransactionDetailModal({ transaction, onClose, onDelete, onUpdate }) {
 
   return (
     <>
-      <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in p-6">
-        <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-6">
+        <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-zoom-in max-h-[90vh] flex flex-col">
           
           <div className="flex justify-between items-center p-4 border-b border-gray-50 shrink-0">
              <h3 className="text-sm font-bold text-gray-500 ml-2">{isEditing ? '编辑账单' : '账单详情'}</h3>
@@ -1037,7 +1235,7 @@ function TransactionDetailModal({ transaction, onClose, onDelete, onUpdate }) {
                         onClick={() => setEditedTx({...editedTx, categoryId: cat.id})}
                         className={`flex flex-col items-center p-1 rounded-lg ${editedTx.categoryId === cat.id ? 'bg-blue-50 ring-1 ring-blue-500' : ''}`}
                       >
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${cat.color}`}>
+                        <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center ${cat.color}`}>
                            <cat.icon size={14} />
                         </div>
                         <span className="text-[10px] text-gray-500 mt-1 scale-90">{cat.name}</span>
@@ -1198,8 +1396,8 @@ function AddTransactionModal({ onClose, onSave }) {
     };
 
     return (
-        <div className="absolute inset-0 z-50 flex flex-col justify-end bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-t-3xl p-6 h-[90vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
+        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/20 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-t-3xl p-6 h-[90vh] flex flex-col shadow-2xl animate-slide-from-bottom">
                 
                 {/* Header & Type Switcher */}
                 <div className="flex justify-between mb-6 shrink-0">
@@ -1233,7 +1431,7 @@ function AddTransactionModal({ onClose, onSave }) {
                     <div className="grid grid-cols-4 gap-y-4 gap-x-2">
                         {categories.map(cat => (
                             <button key={cat.id} onClick={()=>setCategoryId(cat.id)} className="flex flex-col items-center gap-1 group">
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${categoryId===cat.id ? `${cat.color} ring-2 ring-offset-1 ring-blue-500` : 'bg-gray-50 text-gray-400 group-hover:bg-gray-100'}`}>
+                                <div className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center transition-all ${categoryId===cat.id ? `${cat.color} ring-2 ring-offset-1 ring-blue-500` : 'bg-gray-50 text-gray-400 group-hover:bg-gray-100'}`}>
                                     <cat.icon size={20}/>
                                 </div>
                                 <span className={`text-[10px] font-medium ${categoryId===cat.id ? 'text-gray-800' : 'text-gray-400'}`}>{cat.name}</span>
@@ -1321,7 +1519,7 @@ function ImportModal({ onClose, onImport }) {
     };
 
     return (
-      <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-4">
         <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
           <div className="p-4 border-b border-gray-100 flex justify-between items-center">
             <h3 className="font-bold text-gray-900">导入微信/Excel账单</h3>
